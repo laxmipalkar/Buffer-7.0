@@ -4,7 +4,7 @@ Problem Statement :
 Traditional Braille learning methods often rely on physical tools or static textbooks that lack immediate feedback and dynamic progress tracking. For a learner (particularly those with visual impairments), the transition from learning individual letters (Grade 1) to complex words and contractions (Grade 2) requires a structured, interactive environment that adapts to their pace.
 
 
-Video_link = 
+Video_link = https://drive.google.com/file/d/1Gc1gSSZAPpu7ogHv3oGRj1iudGxdOjnW/view?usp=drivesdk
 
 Data Structures used - 
 
