@@ -1,0 +1,515 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Anuvad - Braille Lipi Assistant</title>
+    <style>
+        :root {
+            --bg: #121212;
+            --card: #1e1e1e;
+            --accent: #00ff88;
+            --practice: #00e5ff;
+            --text: #ffffff;
+        }
+
+        body {
+            background: var(--bg);
+            color: var(--text);
+            font-family: 'Segoe UI', sans-serif;
+            text-align: center;
+            padding: 20px;
+        }
+
+        #letterTitle {
+            font-size: 2.5rem;
+            color: var(--accent);
+            margin-bottom: 20px;
+            min-height: 60px;
+        }
+
+        .app-container {
+            display: flex;
+            justify-content: center;
+            align-items: flex-start;
+            gap: 40px;
+            flex-wrap: wrap;
+            margin-top: 20px;
+        }
+
+        .matrix-box {
+            background: var(--card);
+            padding: 20px;
+            border-radius: 20px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.5);
+            border: 2px solid #333;
+            min-width: 250px;
+        }
+
+        .braille-grid {
+            display: grid;
+            grid-template-columns: 80px 80px;
+            gap: 25px;
+            justify-content: center;
+            margin: 20px auto;
+            padding: 20px;
+            width: fit-content;
+        }
+
+        .dot {
+            width: 75px;
+            height: 75px;
+            border-radius: 50%;
+            background: #333;
+            border: 3px solid #444;
+            transition: 0.3s;
+        }
+
+        .dot.active  { background: var(--accent);   border-color: white; box-shadow: 0 0 20px var(--accent);   }
+        .dot.p-active{ background: var(--practice); border-color: white; box-shadow: 0 0 20px var(--practice); }
+
+        #practiceMatrix { display: none; border: 3px dashed var(--practice); }
+        #timerDisplay   { font-size: 1.5rem; color: var(--practice); height: 35px; margin-bottom: 10px; font-weight: bold; }
+
+        .controls { margin-top: 20px; }
+
+        .mode-selection {
+            margin-top: 15px;
+            padding-top: 15px;
+            border-top: 1px solid #333;
+            display: flex;
+            flex-wrap: wrap;
+            justify-content: center;
+            gap: 10px;
+        }
+
+        button {
+            padding: 12px 25px;
+            cursor: pointer;
+            border-radius: 8px;
+            border: 2px solid #444;
+            background: #252525;
+            color: white;
+            font-weight: bold;
+            transition: 0.2s;
+            text-transform: uppercase;
+        }
+        button:hover        { background: #444; border-color: var(--accent); }
+        .btn-mode           { border-color: #555; background: #333; font-size: 0.8rem; }
+        .btn-practice       { border-color: var(--practice); color: var(--practice); }
+
+        .status { margin-top: 20px; color: #888; font-size: 0.9rem; }
+        .mic-active { color: var(--accent) !important; font-weight: bold; }
+        .feedback { font-size: 1.2rem; margin-top: 10px; font-weight: bold; min-height: 30px; }
+
+        /* Progress group — one per lesson button */
+        .progress-group {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            min-width: 140px;
+        }
+
+        .progress-container {
+            width: 100%;
+            height: 6px;
+            background: #333;
+            border-radius: 10px;
+            margin-top: 8px;
+            overflow: hidden;
+            border: 1px solid #444;
+        }
+
+        /* Unified bar style — no per-ID overrides needed */
+        .progress-bar {
+            width: 0%;
+            height: 100%;
+            background: var(--accent);
+            box-shadow: 0 0 10px var(--accent);
+            border-radius: 10px;
+            transition: width 0.5s ease-in-out;
+        }
+
+        .progress-text { font-size: 10px; color: #888; margin-top: 4px; }
+    </style>
+</head>
+<body>
+
+<h1 id="letterTitle">अनुवाद : Braille Lipi Assistant</h1>
+<div id="timerDisplay"></div>
+
+<div class="app-container">
+    <div class="matrix-box">
+        <h3 id="lessonBoxTitle">Lesson Matrix</h3>
+        <div class="braille-grid">
+            <div id="dot1" class="dot"></div> <div id="dot4" class="dot"></div>
+            <div id="dot2" class="dot"></div> <div id="dot5" class="dot"></div>
+            <div id="dot3" class="dot"></div> <div id="dot6" class="dot"></div>
+        </div>
+    </div>
+
+    <div class="matrix-box" id="practiceMatrix">
+        <h3 id="practiceHeader">Practice Matrix</h3>
+        <div class="braille-grid">
+            <div id="pdot1" class="dot"></div> <div id="pdot4" class="dot"></div>
+            <div id="pdot2" class="dot"></div> <div id="pdot5" class="dot"></div>
+            <div id="pdot3" class="dot"></div> <div id="pdot6" class="dot"></div>
+        </div>
+        <div id="practiceFeedback" class="feedback"></div>
+    </div>
+</div>
+
+<div class="controls">
+    <button onclick="fetchData('prev')">Before</button>
+    <button onclick="fetchData('current')">Repeat</button>
+    <button onclick="fetchData('next')">Next</button>
+    <button class="btn-practice" onclick="startPractice()">Practice</button>
+
+    <div class="mode-selection">
+        <div class="progress-group">
+            <button class="btn-mode" onclick="fetchData('grade1Alphabets')">G1: Alphabets</button>
+            <div class="progress-container">
+                <div id="bar-grade1Alphabets" class="progress-bar"></div>
+            </div>
+            <span id="percent-grade1Alphabets" class="progress-text">0%</span>
+        </div>
+
+        <div class="progress-group">
+            <button class="btn-mode" onclick="fetchData('grade1Numbers')">G1: Numbers</button>
+            <div class="progress-container">
+                <div id="bar-grade1Numbers" class="progress-bar"></div>
+            </div>
+            <span id="percent-grade1Numbers" class="progress-text">0%</span>
+        </div>
+
+        <div class="progress-group">
+            <button class="btn-mode" onclick="fetchData('learnWords')">G2: Words</button>
+            <div class="progress-container">
+                <div id="bar-learnWords" class="progress-bar"></div>
+            </div>
+            <span id="percent-learnWords" class="progress-text">0%</span>
+        </div>
+
+        <div class="progress-group">
+            <button class="btn-mode" onclick="fetchData('contractions')">G2: Magic words</button>
+            <div class="progress-container">
+                <div id="bar-contractions" class="progress-bar"></div>
+            </div>
+            <span id="percent-contractions" class="progress-text">0%</span>
+        </div>
+    </div>
+</div>
+
+<div class="status">
+    <p id="micIndicator">Voice: "Next", "Before", "Repeat", "Practice", "Alphabets", "Numbers", "Words", "Magic words"</p>
+</div>
+
+<script>
+    const API_BASE = "http://localhost:8081/api/lesson";
+    fetch(`${API_BASE}/next`).then(r=>r.json()).then(d=>console.log("TEST:",JSON.stringify(d)));
+    const INSTRUCTIONS = "The instructions are, Say next to continue. Say before to go back. Say repeat to hear the dots again. Say practice to start practicing. During practice, use your numpad to enter dots and press 0 to submit.";
+
+    const Recognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+    let rec = Recognition ? new Recognition() : null;
+    let isSpeaking = false;
+    let firstLoad = true;
+
+    let currentLessonData = null;
+    let currentWordIndex   = 0;
+    let currentLetterPattern = 0;
+    let practicePattern    = 0;
+    let isPracticeRunning  = false;
+    let isInputActive      = false;
+    let practiceAttempts   = 0;
+    let timerInterval      = null;
+    let forceRetry         = false;
+
+    // -----------------------------------------------------------------
+    // KEY FIX: currentMode must always reflect the active lesson so that
+    // updateProgressUI() always targets the right bar.
+    // -----------------------------------------------------------------
+    let currentMode = 'grade1Alphabets';
+
+    if (rec) {
+        rec.lang = 'en-US';
+        rec.continuous = false;
+        rec.onstart = () => document.getElementById('micIndicator').classList.add('mic-active');
+        rec.onend   = () => {
+            document.getElementById('micIndicator').classList.remove('mic-active');
+            if (!isSpeaking) try { rec.start(); } catch(e) {}
+        };
+        rec.onresult = (e) => {
+            const cmd = e.results[e.results.length - 1][0].transcript.toLowerCase();
+            if      (cmd.includes("practice"))                    startPractice();
+            else if (cmd.includes("alphabets"))                   fetchData("grade1Alphabets");
+            else if (cmd.includes("numbers"))                     fetchData("grade1Numbers");
+            else if (cmd.includes("magic"))                       fetchData("contractions");
+            else if (cmd.includes("words"))                       fetchData("learnWords");
+            else if (cmd.includes("next"))                        fetchData("next");
+            else if (cmd.includes("before") || cmd.includes("back")) fetchData("prev");
+            else if (cmd.includes("repeat"))                      fetchData("current");
+            else if (cmd.includes("help"))                        speakHelp();
+        };
+    }
+
+    window.addEventListener('keydown', (e) => {
+        if (!isPracticeRunning || !isInputActive) return;
+
+        if (e.key === '0') {
+            if (timerInterval) clearInterval(timerInterval);
+            document.getElementById('timerDisplay').innerText = "";
+            evaluatePractice();
+            return;
+        }
+
+        const map = { '7': 1, '4': 2, '1': 3, '8': 4, '5': 5, '2': 6 };
+        if (map[e.key]) {
+            practicePattern ^= (1 << (6 - map[e.key]));
+            updatePracticeUI();
+        }
+    });
+
+    // ------------------------------------------------------------------
+    // updateProgressUI
+    // Reads the progress value from the JSON response and fills the bar.
+    // ------------------------------------------------------------------
+    function updateProgressUI(lessonId, percentage) {
+        const bar  = document.getElementById(`bar-${lessonId}`);
+        const text = document.getElementById(`percent-${lessonId}`);
+
+        // Guard: ignore NaN / undefined
+        let validPercent = 0;
+        if (typeof percentage === 'number' && !isNaN(percentage)) {
+            validPercent = Math.round(percentage);
+        }
+
+        if (bar)  bar.style.width  = validPercent + "%";
+        if (text) text.innerText   = validPercent + "%";
+    }
+
+    // ------------------------------------------------------------------
+    // fetchData — central data fetcher
+    // ------------------------------------------------------------------
+    async function fetchData(action, isInitialStartup = false) {
+        try {
+            window.speechSynthesis.cancel();
+
+            // Track which lesson we're in
+            const lessonModes = ['grade1Alphabets', 'grade1Numbers', 'learnWords', 'contractions'];
+            if (lessonModes.includes(action)) {
+                currentMode = action;
+            }
+
+            if (action !== 'current') {
+                practiceAttempts = 0;
+                currentWordIndex = 0;
+            }
+
+            const announcements = {
+                'grade1Alphabets': "Grade 1, Lesson 1: Alphabets.",
+                'grade1Numbers':   "Grade 1, Lesson 2: Numbers.",
+                'learnWords':      "Grade 2, Lesson 1: Words.",
+                'contractions':    "Grade 2, Lesson 2: Magic words."
+            };
+
+            if (announcements[action]) {
+                if (isInitialStartup) {
+                    await speakAndWait(announcements[action]);
+                } else {
+                    await speakAndWait("Lesson Changed. " + announcements[action]);
+                }
+            }
+
+            if (isInitialStartup) {
+                await speakAndWait(INSTRUCTIONS);
+            }
+
+            const res  = await fetch(`${API_BASE}/${action}`);
+            const data = await res.json();
+
+            // ---------------------------------------------------------
+            // KEY FIX: Always update the bar for currentMode after every
+            // API call, because 'next' also returns an updated progress.
+            // Use currentMode (not action) because action might be 'next'.
+            // ---------------------------------------------------------
+            if (data.progress !== undefined && data.progress !== null) {
+                updateProgressUI(currentMode, data.progress);
+            }
+
+            currentLessonData = data;
+            await render(data);
+
+            if (forceRetry) {
+                forceRetry = false;
+                startPractice();
+            }
+        } catch (err) {
+            console.error("API Error:", err);
+        }
+    }
+
+    // ------------------------------------------------------------------
+    // startPractice
+    // ------------------------------------------------------------------
+    async function startPractice() {
+        if (isPracticeRunning) return;
+        if (!currentLessonData) return;
+
+        isPracticeRunning = true;
+        isInputActive = false;
+        practicePattern = 0;
+        updatePracticeUI();
+        currentLetterPattern = currentLessonData.patterns[currentWordIndex];
+        document.getElementById('practiceMatrix').style.display = 'block';
+        document.getElementById('practiceFeedback').innerText = "";
+        document.getElementById('practiceHeader').innerText = `Practice (Attempt ${practiceAttempts + 1}/3)`;
+
+        if (practiceAttempts === 0) {
+            let msg = `Practice started for ${currentLessonData.word[currentWordIndex]}. Press 0 to submit. 10 seconds.`;
+            await speakAndWait(msg);
+        } else {
+            await speakAndWait(`Attempt ${practiceAttempts + 1}. Try again.`);
+        }
+
+        isInputActive = true;
+        let countdown = 10;
+        const timerDiv = document.getElementById('timerDisplay');
+        timerInterval = setInterval(() => {
+            timerDiv.innerText = "Time Left: " + countdown + "s";
+            countdown--;
+            if (countdown < 0) {
+                clearInterval(timerInterval);
+                timerDiv.innerText = "";
+                evaluatePractice();
+            }
+        }, 1000);
+    }
+
+    // ------------------------------------------------------------------
+    // evaluatePractice
+    // ------------------------------------------------------------------
+    async function evaluatePractice() {
+        isInputActive = false;
+        isPracticeRunning = false;
+        const feedback = document.getElementById('practiceFeedback');
+
+        if (practicePattern === currentLetterPattern) {
+            feedback.style.color = "var(--accent)";
+            practiceAttempts = 0;
+            forceRetry = false;
+
+            if (currentWordIndex < currentLessonData.patterns.length - 1) {
+                feedback.innerText = "Correct! Next letter...";
+                await speakAndWait("Correct. Next letter.");
+                currentWordIndex++;
+                startPractice();
+            } else {
+                // SUCCESS — tell Java to advance and update progress
+                feedback.innerText = "Correct! It's Completed.";
+                await speakAndWait("Excellent! Correct. Moving to the next.");
+                document.getElementById('practiceMatrix').style.display = 'none';
+
+                // fetchData('next') → Java calls getNext() + getNextLetter() (queue poll)
+                // → returns new progress % → updateProgressUI() fills the bar
+                fetchData('completePractice');            }
+        } else {
+            practiceAttempts++;
+            if (practiceAttempts < 3) {
+                feedback.style.color = "#ffcc00";
+                feedback.innerText = `Wrong. Chances: ${3 - practiceAttempts}`;
+                await speakAndWait(`Not quite. You have ${3 - practiceAttempts} chances left.`);
+                startPractice();
+            } else {
+                feedback.style.color = "#ff4444";
+                feedback.innerText = "Attempt failed. Teaching again.";
+                await speakAndWait("Out of attempts. Let's review the dots again.");
+                practiceAttempts = 0;
+                currentWordIndex = 0;
+                forceRetry = true;
+                document.getElementById('practiceMatrix').style.display = 'none';
+                fetchData('current');
+            }
+        }
+    }
+
+    // ------------------------------------------------------------------
+    // Startup
+    // ------------------------------------------------------------------
+    async function startApp() {
+        if (firstLoad) {
+            await speakAndWait("Welcome to Anuvad: Your Braille Lipi Assistant.");
+            await fetchData('grade1Alphabets', true);
+            firstLoad = false;
+        }
+    }
+
+    async function speakHelp() {
+        window.speechSynthesis.cancel();
+        await speakAndWait(INSTRUCTIONS);
+    }
+
+    // ------------------------------------------------------------------
+    // render
+    // ------------------------------------------------------------------
+   async function render(data) {
+    const title = document.getElementById('letterTitle');
+    const lessonBoxTitle = document.getElementById('lessonBoxTitle'); // Get this element
+    
+    // 1. CLEAR OLD STATE: Reset the extra title box every time a new render starts
+    if (lessonBoxTitle) {
+        lessonBoxTitle.innerText = ""; 
+    }
+
+    let prefix = data.type === "alphabet" ? "Letter" : (data.type === "number" ? "Number" : "Word");
+    title.innerText = `${prefix}: ${data.word}`;
+    await speakAndWait(`${prefix} ${data.word}.`);
+
+    for (let i = 0; i < data.patterns.length; i++) {
+        const pattern = data.patterns[i];
+        updateDotsUI(pattern);
+
+        // 2. Only show the "-> Letter" indicator if we are currently spelling a word
+        if (data.patterns.length > 1 && lessonBoxTitle) {
+            lessonBoxTitle.innerText = `-> ${data.word[i]}`;
+        }
+
+        let speech = [];
+        if (data.type === "word" && data.patterns.length > 1) {
+            speech.push(`Letter ${data.word[i]}.`);
+        }
+        
+        for (let d = 1; d <= 6; d++) {
+            if ((pattern & (1 << (6 - d))) !== 0) speech.push(`dot ${d}`);
+        }
+        await speakAndWait(speech.join(", "));
+    }
+}
+    function speakAndWait(text) {
+        return new Promise((resolve) => {
+            const utter  = new SpeechSynthesisUtterance(text);
+            utter.rate   = 0.9;
+            utter.onstart = () => { isSpeaking = true; if (rec) try { rec.stop();  } catch(e) {} };
+            utter.onend   = () => { isSpeaking = false; if (rec) try { rec.start();} catch(e) {} resolve(); };
+            window.speechSynthesis.speak(utter);
+        });
+    }
+
+    function updateDotsUI(val) {
+        for (let i = 1; i <= 6; i++) {
+            document.getElementById(`dot${i}`).classList.toggle('active', (val & (1 << (6 - i))) !== 0);
+        }
+    }
+
+    function updatePracticeUI() {
+        for (let i = 1; i <= 6; i++) {
+            const isActive = (practicePattern & (1 << (6 - i))) !== 0;
+            document.getElementById(`pdot${i}`).classList.toggle('p-active', isActive);
+        }
+    }
+
+    window.addEventListener('click', () => {
+        if (firstLoad) startApp();
+        else if (rec) try { rec.start(); } catch(e) {}
+    }, { once: true });
+</script>
+</body>
+</html>
