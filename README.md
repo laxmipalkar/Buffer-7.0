@@ -30,12 +30,12 @@ Also while 'teaching lessons', each Braille character/number/word is stored as a
 We use bit masking to compare user input with a stored pattern using a single integer.
 Each Braille character/number/word is represented as a 6-bit value (1 = dot up, 0 = dot down).
 We map NumPad inputs to dot positions in a 3×2 grid:
-7 → dot 1
-4 → dot 2
-1 → dot 3
-8 → dot 4
-5 → dot 5
-2 → dot 6
+7 → dot 1, 
+4 → dot 2, 
+1 → dot 3, 
+8 → dot 4, 
+5 → dot 5, 
+2 → dot 6, 
 Example:
 If user presses 7, only dot 1 is active → 100000 (binary) = 32 (decimal).
 This generated value is then matched with a stored hashmap value (e.g., for letter “A”) to check correctness.
