@@ -163,6 +163,8 @@
     <button onclick="fetchData('current')">Repeat</button>
     <button onclick="fetchData('next')">Next</button>
     <button class="btn-practice" onclick="startPractice()">Practice</button>
+    <button class="btn-mode" style="border-color: #ff00ff; color: #ff00ff;" onclick="getAISong()">Listen To It!</button>
+    <button class="btn-mode" style="border-color: #ff9900; color: #ff9900;" onclick="getAIStory()">Story</button>
 
     <div class="mode-selection">
         <div class="progress-group">
@@ -260,7 +262,7 @@
             evaluatePractice();
             return;
         }
-
+// bit masking
         const map = { '7': 1, '4': 2, '1': 3, '8': 4, '5': 5, '2': 6 };
         if (map[e.key]) {
             practicePattern ^= (1 << (6 - map[e.key]));
@@ -510,6 +512,58 @@
         if (firstLoad) startApp();
         else if (rec) try { rec.start(); } catch(e) {}
     }, { once: true });
+
+    // --- NEW GEMINI INTEGRATION FUNCTIONS ---
+
+/**
+ * Fetches an AI-generated nursery rhyme for the current letter from Gemini
+ */
+async function getAISong() {
+    if (!currentLessonData) return;
+    
+    // We get the current letter/word (e.g., 'A' or 'Apple')
+    const currentSubject = currentLessonData.word;
+    const firstLetter = currentSubject.charAt(0);
+
+    try {
+        window.speechSynthesis.cancel();
+        await speakAndWait("Listen to it");
+
+        // Call your Spring Boot API (The one we made in ContentController)
+        const response = await fetch(`http://localhost:8081/api/ai/song?letter=${firstLetter}&object=${currentSubject}`);
+        const songText = await response.text();
+
+        // Use your existing speakAndWait to read Gemini's rhyme
+        await speakAndWait(songText);
+    } catch (err) {
+        console.error("Gemini Song Error:", err);
+        await speakAndWait("Oh no! The music man is tired. Try again later.");
+    }
+}
+
+/**
+ * Fetches a classic story narrated for a blind child from Gemini
+ */
+async function getAIStory() {
+    // You can let the child choose, or rotate through stories
+    const stories = ["The Tortoise and the Hare", "The Lion and the Mouse", "The Thirsty Crow"];
+    const randomStory = stories[Math.floor(Math.random() * stories.length)];
+
+    try {
+        window.speechSynthesis.cancel();
+        await speakAndWait(`Gemini is opening the big book of stories. Let's hear about ${randomStory}.`);
+
+        // Call your Spring Boot API
+        const response = await fetch(`http://localhost:8081/api/ai/story?name=${encodeURIComponent(randomStory)}`);
+        const storyText = await response.text();
+
+        // Use your existing speakAndWait to narrate the story
+        await speakAndWait(storyText);
+    } catch (err) {
+        console.error("Gemini Story Error:", err);
+        await speakAndWait("The story book is stuck! Let's try again in a moment.");
+    }
+}
 </script>
 </body>
 </html>
