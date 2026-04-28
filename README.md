@@ -120,6 +120,5 @@ public class GeminiContentService {
         return callGemini("You are a gentle fun teacher for a 5-year-old blind child. Tell a very short 4-sentence version of the story '" + storyName + "'. Use lots of sound effects words like Thump-thump or Swoosh.");
     }
 }
-
 update pom.xml according to it
 
