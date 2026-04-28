@@ -55,12 +55,9 @@ AI Story Narrator
 The Gemini API also generates short, age-appropriate classic stories like The Tortoise and the Hare, The Lion and the Mouse, and The Thirsty Crow — narrated in simple language suitable for a 5-year-old child. These stories are read aloud using the Text to Speech system, keeping the child engaged and entertained between lessons.
 
 
-
-
-
 api integration - 
 
-application.properties file , 
+application.properties file -  
 spring.application.name=demo
 server.port=8081
 gemini.api.key=AIzaSyDdafL35QtHGelRnnnTOHx6KROrw0uK67g
@@ -74,7 +71,6 @@ import org.springframework.web.client.RestTemplate;
 import org.springframework.http.*;
 import java.util.Map;
 import java.util.List;
-
 
 @Service
 public class GeminiContentService {
