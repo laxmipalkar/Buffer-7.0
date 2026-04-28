@@ -41,4 +41,89 @@ If user presses 7, only dot 1 is active → 100000 (binary) = 32 (decimal).
 This generated value is then matched with a stored hashmap value (e.g., for letter “A”) to check correctness.
 
 * TTS (Text to Speech) and STT(Speech to Text) -
-Helps guide visually impaired learners. When a Braille character is displayed, the system speaks the dot positions aloud (for example, “Dot 1” for letter A). This helps learners understand how the dots are arranged in the Braille matrix and assists them in practicing tactile recognition. 
+Helps guide visually impaired learners. When a Braille character is displayed, the system speaks the dot positions aloud (for example, “Dot 1” for letter A). This helps learners understand how the dots are arranged in the Braille matrix and assists them in practicing tactile recognition.
+
+
+* Google Gemini AI Integration
+
+Anuvad integrates Google's Gemini AI API to enhance the learning experience for visually impaired children through two features:
+
+AI Song Generator
+When a child learns a new letter, the Gemini API generates a personalized nursery rhyme for that letter. For example, when learning the letter A, Gemini creates a fun rhyme like "A is for Apple, round and sweet, crunch crunch crunch, what a yummy treat!" This makes learning joyful and helps children remember letters through music and rhythm.
+
+AI Story Narrator
+The Gemini API also generates short, age-appropriate classic stories like The Tortoise and the Hare, The Lion and the Mouse, and The Thirsty Crow — narrated in simple language suitable for a 5-year-old child. These stories are read aloud using the Text to Speech system, keeping the child engaged and entertained between lessons.
+
+
+
+
+
+api integration - 
+
+application.properties file , 
+spring.application.name=demo
+server.port=8081
+gemini.api.key=AIzaSyDdafL35QtHGelRnnnTOHx6KROrw0uK67g
+
+
+GeminiContentService.java file - 
+package com.example.demo.service;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.stereotype.Service;
+import org.springframework.web.client.RestTemplate;
+import org.springframework.http.*;
+import java.util.Map;
+import java.util.List;
+
+
+@Service
+public class GeminiContentService {
+
+
+    @Value("${gemini.api.key}")
+    private String apiKey;
+
+
+    private final RestTemplate restTemplate = new RestTemplate();
+
+
+    private String callGemini(String prompt) {
+        String url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=" + apiKey;
+
+
+        Map<String, Object> body = Map.of(
+            "contents", List.of(
+                Map.of("parts", List.of(
+                    Map.of("text", prompt)
+                ))
+            )
+        );
+
+
+        HttpHeaders headers = new HttpHeaders();
+        headers.setContentType(MediaType.APPLICATION_JSON);
+        HttpEntity<Map<String, Object>> request = new HttpEntity<>(body, headers);
+
+
+        ResponseEntity<Map> response = restTemplate.postForEntity(url, request, Map.class);
+
+
+        List<Map> candidates = (List<Map>) response.getBody().get("candidates");
+        Map content = (Map) candidates.get(0).get("content");
+        List<Map> parts = (List<Map>) content.get("parts");
+        return (String) parts.get(0).get("text");
+    }
+
+
+    public String getAlphabetSong(String letter, String object) {
+        return callGemini("You are a gentle fun teacher for a 5-year-old blind child. Write a 2-line catchy rhyme for the letter " + letter + ". The object is " + object + ". Make it sound like a happy song. Keep it to 2 sentences.");
+    }
+
+
+    public String getClassicStory(String storyName) {
+        return callGemini("You are a gentle fun teacher for a 5-year-old blind child. Tell a very short 4-sentence version of the story '" + storyName + "'. Use lots of sound effects words like Thump-thump or Swoosh.");
+    }
+}
+
+update pom.xml according to it
+
