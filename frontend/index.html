@@ -64,8 +64,8 @@
             transition: 0.3s;
         }
 
-        .dot.active  { background: var(--accent);   border-color: white; box-shadow: 0 0 20px var(--accent);   }
-        .dot.p-active{ background: var(--practice); border-color: white; box-shadow: 0 0 20px var(--practice); }
+        .dot.active   { background: var(--accent);   border-color: white; box-shadow: 0 0 20px var(--accent);   }
+        .dot.p-active { background: var(--practice); border-color: white; box-shadow: 0 0 20px var(--practice); }
 
         #practiceMatrix { display: none; border: 3px dashed var(--practice); }
         #timerDisplay   { font-size: 1.5rem; color: var(--practice); height: 35px; margin-bottom: 10px; font-weight: bold; }
@@ -101,7 +101,6 @@
         .mic-active { color: var(--accent) !important; font-weight: bold; }
         .feedback { font-size: 1.2rem; margin-top: 10px; font-weight: bold; min-height: 30px; }
 
-        /* Progress group — one per lesson button */
         .progress-group {
             display: flex;
             flex-direction: column;
@@ -119,7 +118,6 @@
             border: 1px solid #444;
         }
 
-        /* Unified bar style — no per-ID overrides needed */
         .progress-bar {
             width: 0%;
             height: 100%;
@@ -130,6 +128,20 @@
         }
 
         .progress-text { font-size: 10px; color: #888; margin-top: 4px; }
+
+        /* Mic status indicator styles */
+        #micStatus {
+            display: inline-block;
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            background: #555;
+            margin-right: 6px;
+            vertical-align: middle;
+            transition: background 0.3s;
+        }
+        #micStatus.listening { background: var(--accent); box-shadow: 0 0 8px var(--accent); }
+        #micStatus.speaking  { background: #ff9900;       box-shadow: 0 0 8px #ff9900; }
     </style>
 </head>
 <body>
@@ -202,57 +214,109 @@
 </div>
 
 <div class="status">
-    <p id="micIndicator">Voice: "Next", "Before", "Repeat", "Practice", "Alphabets", "Numbers", "Words", "Magic words"</p>
+    <p id="micIndicator">
+        <span id="micStatus"></span>
+        Voice: "Next", "Before", "Repeat", "Practice", "Alphabets", "Numbers", "Words", "Magic words"
+    </p>
 </div>
 
 <script>
     const API_BASE = "http://localhost:8081/api/lesson";
-    fetch(`${API_BASE}/next`).then(r=>r.json()).then(d=>console.log("TEST:",JSON.stringify(d)));
-    const INSTRUCTIONS = "The instructions are, Say next to continue. Say before to go back. Say repeat to hear the dots again. Say practice to start practicing. During practice, use your numpad to enter dots and press 0 to submit.";
+    fetch(`${API_BASE}/next`).then(r => r.json()).then(d => console.log("TEST:", JSON.stringify(d)));
 
+    const INSTRUCTIONS = "The instructions are: Say next to continue. Say before to go back. Say repeat to hear the dots again. Say practice to start practicing. During practice, use your numpad to enter dots and press 0 to submit.";
+
+    // ─── Speech Recognition Setup ─────────────────────────────────────────────
     const Recognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-    let rec = Recognition ? new Recognition() : null;
-    let isSpeaking = false;
-    let firstLoad = true;
+    let rec = null;
+    let recRunning = false; // tracks whether rec is actually started
 
-    let currentLessonData = null;
-    let currentWordIndex   = 0;
-    let currentLetterPattern = 0;
-    let practicePattern    = 0;
-    let isPracticeRunning  = false;
-    let isInputActive      = false;
-    let practiceAttempts   = 0;
-    let timerInterval      = null;
-    let forceRetry         = false;
-
-    // -----------------------------------------------------------------
-    // KEY FIX: currentMode must always reflect the active lesson so that
-    // updateProgressUI() always targets the right bar.
-    // -----------------------------------------------------------------
-    let currentMode = 'grade1Alphabets';
-
-    if (rec) {
+    if (Recognition) {
+        rec = new Recognition();
         rec.lang = 'en-US';
-        rec.continuous = false;
-        rec.onstart = () => document.getElementById('micIndicator').classList.add('mic-active');
-        rec.onend   = () => {
-            document.getElementById('micIndicator').classList.remove('mic-active');
-            if (!isSpeaking) try { rec.start(); } catch(e) {}
+        rec.continuous = true;      // FIX 1: continuous=true avoids stop/start race conditions
+        rec.interimResults = false; // only fire on final results
+        rec.maxAlternatives = 1;
+
+        rec.onstart = () => {
+            recRunning = true;
+            setMicStatus('listening');
         };
+
+        rec.onend = () => {
+            recRunning = false;
+            setMicStatus('idle');
+            // FIX 2: auto-restart ONLY when not speaking and app is initialised
+            if (appStarted && !isSpeaking) {
+                safeStartRec();
+            }
+        };
+
+        rec.onerror = (e) => {
+            recRunning = false;
+            console.warn("Speech recognition error:", e.error);
+            // 'aborted' fires when we intentionally stop; ignore it
+            if (e.error === 'aborted') return;
+            // For network / no-speech errors, try restarting after a small delay
+            if (appStarted && !isSpeaking) {
+                setTimeout(safeStartRec, 500);
+            }
+        };
+
         rec.onresult = (e) => {
-            const cmd = e.results[e.results.length - 1][0].transcript.toLowerCase();
-            if      (cmd.includes("practice"))                    startPractice();
-            else if (cmd.includes("alphabets"))                   fetchData("grade1Alphabets");
-            else if (cmd.includes("numbers"))                     fetchData("grade1Numbers");
-            else if (cmd.includes("magic"))                       fetchData("contractions");
-            else if (cmd.includes("words"))                       fetchData("learnWords");
-            else if (cmd.includes("next"))                        fetchData("next");
+            // FIX 3: completely ignore voice input while TTS is speaking
+            if (isSpeaking) return;
+
+            const cmd = e.results[e.results.length - 1][0].transcript.toLowerCase().trim();
+            console.log("Voice command heard:", cmd);
+
+            if      (cmd.includes("practice"))                        startPractice();
+            else if (cmd.includes("alphabets"))                       fetchData("grade1Alphabets");
+            else if (cmd.includes("numbers"))                         fetchData("grade1Numbers");
+            else if (cmd.includes("magic"))                           fetchData("contractions");
+            else if (cmd.includes("words"))                           fetchData("learnWords");
+            else if (cmd.includes("next"))                            fetchData("next");
             else if (cmd.includes("before") || cmd.includes("back")) fetchData("prev");
-            else if (cmd.includes("repeat"))                      fetchData("current");
-            else if (cmd.includes("help"))                        speakHelp();
+            else if (cmd.includes("repeat"))                          fetchData("current");
+            else if (cmd.includes("help"))                            speakHelp();
         };
     }
 
+    // Safe wrapper — never throw if rec is already running
+    function safeStartRec() {
+        if (!rec || recRunning) return;
+        try { rec.start(); } catch (e) { console.warn("rec.start() error:", e); }
+    }
+
+    // Safe wrapper — never throw if rec is already stopped
+    function safeStopRec() {
+        if (!rec || !recRunning) return;
+        try { rec.stop(); } catch (e) { console.warn("rec.stop() error:", e); }
+    }
+
+    function setMicStatus(state) {
+        const dot = document.getElementById('micStatus');
+        const label = document.getElementById('micIndicator');
+        dot.className = '';
+        if (state === 'listening') { dot.classList.add('listening'); }
+        if (state === 'speaking')  { dot.classList.add('speaking');  }
+    }
+
+    // ─── App State ────────────────────────────────────────────────────────────
+    let isSpeaking       = false;
+    let appStarted       = false; // FIX 4: gate so onend doesn't restart before welcome finishes
+    let currentLessonData   = null;
+    let currentWordIndex    = 0;
+    let currentLetterPattern = 0;
+    let practicePattern     = 0;
+    let isPracticeRunning   = false;
+    let isInputActive       = false;
+    let practiceAttempts    = 0;
+    let timerInterval       = null;
+    let forceRetry          = false;
+    let currentMode         = 'grade1Alphabets';
+
+    // ─── Keyboard input for practice ──────────────────────────────────────────
     window.addEventListener('keydown', (e) => {
         if (!isPracticeRunning || !isInputActive) return;
 
@@ -262,7 +326,8 @@
             evaluatePractice();
             return;
         }
-// bit masking
+
+        // Numpad bit-mask mapping
         const map = { '7': 1, '4': 2, '1': 3, '8': 4, '5': 5, '2': 6 };
         if (map[e.key]) {
             practicePattern ^= (1 << (6 - map[e.key]));
@@ -270,36 +335,25 @@
         }
     });
 
-    // ------------------------------------------------------------------
-    // updateProgressUI
-    // Reads the progress value from the JSON response and fills the bar.
-    // ------------------------------------------------------------------
+    // ─── Progress UI ──────────────────────────────────────────────────────────
     function updateProgressUI(lessonId, percentage) {
         const bar  = document.getElementById(`bar-${lessonId}`);
         const text = document.getElementById(`percent-${lessonId}`);
-
-        // Guard: ignore NaN / undefined
         let validPercent = 0;
         if (typeof percentage === 'number' && !isNaN(percentage)) {
             validPercent = Math.round(percentage);
         }
-
-        if (bar)  bar.style.width  = validPercent + "%";
-        if (text) text.innerText   = validPercent + "%";
+        if (bar)  bar.style.width = validPercent + "%";
+        if (text) text.innerText  = validPercent + "%";
     }
 
-    // ------------------------------------------------------------------
-    // fetchData — central data fetcher
-    // ------------------------------------------------------------------
+    // ─── fetchData ────────────────────────────────────────────────────────────
     async function fetchData(action, isInitialStartup = false) {
         try {
             window.speechSynthesis.cancel();
 
-            // Track which lesson we're in
             const lessonModes = ['grade1Alphabets', 'grade1Numbers', 'learnWords', 'contractions'];
-            if (lessonModes.includes(action)) {
-                currentMode = action;
-            }
+            if (lessonModes.includes(action)) currentMode = action;
 
             if (action !== 'current') {
                 practiceAttempts = 0;
@@ -314,11 +368,8 @@
             };
 
             if (announcements[action]) {
-                if (isInitialStartup) {
-                    await speakAndWait(announcements[action]);
-                } else {
-                    await speakAndWait("Lesson Changed. " + announcements[action]);
-                }
+                const prefix = isInitialStartup ? "" : "Lesson Changed. ";
+                await speakAndWait(prefix + announcements[action]);
             }
 
             if (isInitialStartup) {
@@ -328,11 +379,6 @@
             const res  = await fetch(`${API_BASE}/${action}`);
             const data = await res.json();
 
-            // ---------------------------------------------------------
-            // KEY FIX: Always update the bar for currentMode after every
-            // API call, because 'next' also returns an updated progress.
-            // Use currentMode (not action) because action might be 'next'.
-            // ---------------------------------------------------------
             if (data.progress !== undefined && data.progress !== null) {
                 updateProgressUI(currentMode, data.progress);
             }
@@ -349,9 +395,7 @@
         }
     }
 
-    // ------------------------------------------------------------------
-    // startPractice
-    // ------------------------------------------------------------------
+    // ─── startPractice ────────────────────────────────────────────────────────
     async function startPractice() {
         if (isPracticeRunning) return;
         if (!currentLessonData) return;
@@ -360,21 +404,22 @@
         isInputActive = false;
         practicePattern = 0;
         updatePracticeUI();
+
         currentLetterPattern = currentLessonData.patterns[currentWordIndex];
         document.getElementById('practiceMatrix').style.display = 'block';
         document.getElementById('practiceFeedback').innerText = "";
         document.getElementById('practiceHeader').innerText = `Practice (Attempt ${practiceAttempts + 1}/3)`;
 
-        if (practiceAttempts === 0) {
-            let msg = `Practice started for ${currentLessonData.word[currentWordIndex]}. Press 0 to submit. 10 seconds.`;
-            await speakAndWait(msg);
-        } else {
-            await speakAndWait(`Attempt ${practiceAttempts + 1}. Try again.`);
-        }
+        const msg = practiceAttempts === 0
+            ? `Practice started for ${currentLessonData.word[currentWordIndex]}. Press 0 to submit. 10 seconds.`
+            : `Attempt ${practiceAttempts + 1}. Try again.`;
+
+        await speakAndWait(msg);
 
         isInputActive = true;
         let countdown = 10;
         const timerDiv = document.getElementById('timerDisplay');
+
         timerInterval = setInterval(() => {
             timerDiv.innerText = "Time Left: " + countdown + "s";
             countdown--;
@@ -386,9 +431,7 @@
         }, 1000);
     }
 
-    // ------------------------------------------------------------------
-    // evaluatePractice
-    // ------------------------------------------------------------------
+    // ─── evaluatePractice ─────────────────────────────────────────────────────
     async function evaluatePractice() {
         isInputActive = false;
         isPracticeRunning = false;
@@ -405,14 +448,11 @@
                 currentWordIndex++;
                 startPractice();
             } else {
-                // SUCCESS — tell Java to advance and update progress
                 feedback.innerText = "Correct! It's Completed.";
                 await speakAndWait("Excellent! Correct. Moving to the next.");
                 document.getElementById('practiceMatrix').style.display = 'none';
-
-                // fetchData('next') → Java calls getNext() + getNextLetter() (queue poll)
-                // → returns new progress % → updateProgressUI() fills the bar
-                fetchData('completePractice');            }
+                fetchData('completePractice');
+            }
         } else {
             practiceAttempts++;
             if (practiceAttempts < 3) {
@@ -433,68 +473,72 @@
         }
     }
 
-    // ------------------------------------------------------------------
-    // Startup
-    // ------------------------------------------------------------------
-    async function startApp() {
-        if (firstLoad) {
-            await speakAndWait("Welcome to Anuvad: Your Braille Lipi Assistant.");
-            await fetchData('grade1Alphabets', true);
-            firstLoad = false;
+    // ─── render ───────────────────────────────────────────────────────────────
+    async function render(data) {
+        const title = document.getElementById('letterTitle');
+        const lessonBoxTitle = document.getElementById('lessonBoxTitle');
+
+        if (lessonBoxTitle) lessonBoxTitle.innerText = "";
+
+        const prefix = data.type === "alphabet" ? "Letter" : (data.type === "number" ? "Number" : "Word");
+        title.innerText = `${prefix}: ${data.word}`;
+        await speakAndWait(`${prefix} ${data.word}.`);
+
+        for (let i = 0; i < data.patterns.length; i++) {
+            const pattern = data.patterns[i];
+            updateDotsUI(pattern);
+
+            if (data.patterns.length > 1 && lessonBoxTitle) {
+                lessonBoxTitle.innerText = `-> ${data.word[i]}`;
+            }
+
+            let speech = [];
+            if (data.type === "word" && data.patterns.length > 1) {
+                speech.push(`Letter ${data.word[i]}.`);
+            }
+
+            for (let d = 1; d <= 6; d++) {
+                if ((pattern & (1 << (6 - d))) !== 0) speech.push(`dot ${d}`);
+            }
+            await speakAndWait(speech.join(", "));
         }
     }
 
-    async function speakHelp() {
-        window.speechSynthesis.cancel();
-        await speakAndWait(INSTRUCTIONS);
-    }
-
-    // ------------------------------------------------------------------
-    // render
-    // ------------------------------------------------------------------
-   async function render(data) {
-    const title = document.getElementById('letterTitle');
-    const lessonBoxTitle = document.getElementById('lessonBoxTitle'); // Get this element
-    
-    // 1. CLEAR OLD STATE: Reset the extra title box every time a new render starts
-    if (lessonBoxTitle) {
-        lessonBoxTitle.innerText = ""; 
-    }
-
-    let prefix = data.type === "alphabet" ? "Letter" : (data.type === "number" ? "Number" : "Word");
-    title.innerText = `${prefix}: ${data.word}`;
-    await speakAndWait(`${prefix} ${data.word}.`);
-
-    for (let i = 0; i < data.patterns.length; i++) {
-        const pattern = data.patterns[i];
-        updateDotsUI(pattern);
-
-        // 2. Only show the "-> Letter" indicator if we are currently spelling a word
-        if (data.patterns.length > 1 && lessonBoxTitle) {
-            lessonBoxTitle.innerText = `-> ${data.word[i]}`;
-        }
-
-        let speech = [];
-        if (data.type === "word" && data.patterns.length > 1) {
-            speech.push(`Letter ${data.word[i]}.`);
-        }
-        
-        for (let d = 1; d <= 6; d++) {
-            if ((pattern & (1 << (6 - d))) !== 0) speech.push(`dot ${d}`);
-        }
-        await speakAndWait(speech.join(", "));
-    }
-}
+    // ─── speakAndWait ─────────────────────────────────────────────────────────
+    // FIX 5: Stop mic BEFORE speaking; restart AFTER. This prevents the mic from
+    // picking up TTS audio as a voice command.
     function speakAndWait(text) {
         return new Promise((resolve) => {
             const utter  = new SpeechSynthesisUtterance(text);
             utter.rate   = 0.9;
-            utter.onstart = () => { isSpeaking = true; if (rec) try { rec.stop();  } catch(e) {} };
-            utter.onend   = () => { isSpeaking = false; if (rec) try { rec.start();} catch(e) {} resolve(); };
+
+            utter.onstart = () => {
+                isSpeaking = true;
+                setMicStatus('speaking');
+                safeStopRec(); // silence mic while TTS plays
+            };
+
+            utter.onend = () => {
+                isSpeaking = false;
+                // Small delay before restarting mic so TTS echo doesn't get captured
+                setTimeout(() => {
+                    if (appStarted) safeStartRec();
+                    setMicStatus('listening');
+                    resolve();
+                }, 300);
+            };
+
+            utter.onerror = () => {
+                isSpeaking = false;
+                if (appStarted) safeStartRec();
+                resolve();
+            };
+
             window.speechSynthesis.speak(utter);
         });
     }
 
+    // ─── Dot UI helpers ───────────────────────────────────────────────────────
     function updateDotsUI(val) {
         for (let i = 1; i <= 6; i++) {
             document.getElementById(`dot${i}`).classList.toggle('active', (val & (1 << (6 - i))) !== 0);
@@ -508,62 +552,54 @@
         }
     }
 
-    window.addEventListener('click', () => {
-        if (firstLoad) startApp();
-        else if (rec) try { rec.start(); } catch(e) {}
-    }, { once: true });
-
-    // --- NEW GEMINI INTEGRATION FUNCTIONS ---
-
-/**
- * Fetches an AI-generated nursery rhyme for the current letter from Gemini
- */
-async function getAISong() {
-    if (!currentLessonData) return;
-    
-    // We get the current letter/word (e.g., 'A' or 'Apple')
-    const currentSubject = currentLessonData.word;
-    const firstLetter = currentSubject.charAt(0);
-
-    try {
-        window.speechSynthesis.cancel();
-        await speakAndWait("Listen to it");
-
-        // Call your Spring Boot API (The one we made in ContentController)
-        const response = await fetch(`http://localhost:8081/api/ai/song?letter=${firstLetter}&object=${currentSubject}`);
-        const songText = await response.text();
-
-        // Use your existing speakAndWait to read Gemini's rhyme
-        await speakAndWait(songText);
-    } catch (err) {
-        console.error("Gemini Song Error:", err);
-        await speakAndWait("Oh no! The music man is tired. Try again later.");
+    // ─── Startup ──────────────────────────────────────────────────────────────
+    async function startApp() {
+        await speakAndWait("Welcome to Anuvad: Your Braille Lipi Assistant.");
+        appStarted = true; // FIX 6: only allow mic auto-restart after welcome completes
+        safeStartRec();
+        await fetchData('grade1Alphabets', true);
     }
-}
 
-/**
- * Fetches a classic story narrated for a blind child from Gemini
- */
-async function getAIStory() {
-    // You can let the child choose, or rotate through stories
-    const stories = ["The Tortoise and the Hare", "The Lion and the Mouse", "The Thirsty Crow"];
-    const randomStory = stories[Math.floor(Math.random() * stories.length)];
-
-    try {
+    async function speakHelp() {
         window.speechSynthesis.cancel();
-        await speakAndWait(`Gemini is opening the big book of stories. Let's hear about ${randomStory}.`);
-
-        // Call your Spring Boot API
-        const response = await fetch(`http://localhost:8081/api/ai/story?name=${encodeURIComponent(randomStory)}`);
-        const storyText = await response.text();
-
-        // Use your existing speakAndWait to narrate the story
-        await speakAndWait(storyText);
-    } catch (err) {
-        console.error("Gemini Story Error:", err);
-        await speakAndWait("The story book is stuck! Let's try again in a moment.");
+        await speakAndWait(INSTRUCTIONS);
     }
-}
+
+    // FIX 7: Use { once: true } properly — trigger startApp on first interaction.
+    // After that, mic restarts itself via onend callback.
+    window.addEventListener('click', () => { startApp(); }, { once: true });
+
+    // ─── AI Features ──────────────────────────────────────────────────────────
+    async function getAISong() {
+        if (!currentLessonData) return;
+        const currentSubject = currentLessonData.word;
+        const firstLetter    = currentSubject.charAt(0);
+        try {
+            window.speechSynthesis.cancel();
+            await speakAndWait("Listen to it");
+            const response = await fetch(`http://localhost:8081/api/ai/song?letter=${firstLetter}&object=${currentSubject}`);
+            const songText = await response.text();
+            await speakAndWait(songText);
+        } catch (err) {
+            console.error("Gemini Song Error:", err);
+            await speakAndWait("Oh no! The music man is tired. Try again later.");
+        }
+    }
+
+    async function getAIStory() {
+        const stories = ["The Tortoise and the Hare", "The Lion and the Mouse", "The Thirsty Crow"];
+        const randomStory = stories[Math.floor(Math.random() * stories.length)];
+        try {
+            window.speechSynthesis.cancel();
+            await speakAndWait(`Lets open the big book of stories. Let's hear about ${randomStory}.`);
+            const response = await fetch(`http://localhost:8081/api/ai/story?name=${encodeURIComponent(randomStory)}`);
+            const storyText = await response.text();
+            await speakAndWait(storyText);
+        } catch (err) {
+            console.error("Gemini Story Error:", err);
+            await speakAndWait("The story book is stuck! Let's try again in a moment.");
+        }
+    }
 </script>
 </body>
 </html>
